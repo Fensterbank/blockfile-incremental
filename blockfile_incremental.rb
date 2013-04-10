@@ -51,28 +51,11 @@ class BlockfileIncremental
     @directory_name = "#{filename}_#{DateTime.now.strftime('%Y%m%dT%H%M%S')}"
     Dir.mkdir(@directory_name)
     File.open(filename, 'rb') do | container |
-      current_block = String.new
       @processed_bytes = 0
-      index = 0
 
-      container.each_byte do | byte |
-        @processed_bytes += 1
-        index += 1
-        current_block << byte
-
-        if index == step_size
-          if stored_hash_table.nil?
-            BlockfileIncremental.write_block(current_block, nil)
-          else
-            BlockfileIncremental.write_block(current_block, stored_hash_table[@processed_bytes.to_s])
-          end
-          index = 0
-          current_block = String.new
-        end
-      end
-
-      # Writing the rest
-      if index > 0
+      while not container.eof? do
+        current_block = container.read(step_size)
+        @processed_bytes += step_size
         if stored_hash_table.nil?
           BlockfileIncremental.write_block(current_block, nil)
         else
@@ -81,9 +64,6 @@ class BlockfileIncremental
       end
     end
 
-
-    # Writing
-    puts "\nWrite hashtable..."
     File.open("#{filename}_hashtable.dat", 'w') do | hash_file |
       @hash_table.each do | block_end, hash |
         hash_file.write("#{block_end};#{hash}\n")
