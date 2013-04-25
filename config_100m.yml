@@ -1,5 +1,11 @@
 container: '100M'
-unmount: false
 mode: 'differential'
 target-path: 'backup_100m'
 block-size: 5
+truecrypt:
+  enabled: true
+  binary: 'truecrypt -t'
+  unmount: true
+packing:
+  enabled: true
+  format: 'tar'

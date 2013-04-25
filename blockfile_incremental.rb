@@ -15,19 +15,23 @@ class Blockfile
   end
 
   def self.write_block (current_block,stored_hash)
+    written = false
     print_percentage
     block_hash = Digest::SHA256.new << current_block
     if !stored_hash.nil? and !block_hash.to_s.eql?(stored_hash)
       File.open(File.join(@directory_name,block_hash.to_s), 'w') do | block_file |
         block_file.write(current_block)
+        written = true
       end
     elsif stored_hash.nil?
       File.open(File.join(@directory_name,block_hash.to_s), 'w') do | block_file |
         block_file.write(current_block)
+        written = true
       end
     end
 
     @hash_table[@processed_bytes] = block_hash.to_s
+    return written
   end
 
   def self.load_hashtable(target_path,mode,restoring)
@@ -35,16 +39,21 @@ class Blockfile
 
     stored_hash_table = nil
 
-    if restoring || mode == 'incremental' && File.exist?(File.join(target_path, 'hashtable_latest.csv'))
-      file_path = File.join(target_path, 'hashtable_latest.csv')
+    directories = Dir.entries(target_path).select {|entry| File.directory? File.join(target_path,entry) and !(entry =='.' || entry == '..') }.sort
+
+    if (!directories.last.nil? && File.exist?(File.join(target_path, directories.last, 'hashtable_latest.csv'))) && (restoring || mode == 'incremental')
+      file_path = File.join(target_path, directories.last, 'hashtable_latest.csv')
+      @restore_backup_date = DateTime.parse(directories.last.split('_').first)
     else
-      file_path = File.join(target_path, 'hashtable_initial.csv')
+      file_path = find_file('hashtable_initial.csv', directories, target_path)
+      unless file_path.nil?
+        @restore_backup_date = DateTime.parse(File.split(file_path).first.split(File::Separator).last)
+      end
     end
 
-    if File.exist?(file_path)
+    if !file_path.nil? && File.exist?(file_path)
       Writer.output 'Loading stored hash table...'
       stored_hash_table = Hash.new
-
       open(file_path) do |hash_table|
         hash_table.read.each_line do |line|
           end_block, checksum = line.chomp.split(';')
@@ -52,13 +61,13 @@ class Blockfile
         end
       end
     else
-      Writer.info 'No hash table found. Starting a new full backup...'
+      Writer.info 'No hash table found. Starting a new full backup...' unless restoring
       @initial_backup = true
     end
     return stored_hash_table
   end
 
-  def self.write_hashtable(target_path, initial)
+  def self.write_hashtable(initial)
     if initial
       Writer.info('Writing initial hashtable...')
       filename = 'hashtable_initial.csv'
@@ -67,12 +76,13 @@ class Blockfile
       filename = 'hashtable_latest.csv'
     end
 
-    file_path = File.join(target_path, filename)
+    file_path = File.join(@directory_name, filename)
     File.open(file_path, 'w') do | hash_file |
       @hash_table.each do | block_end, hash |
         hash_file.write("#{block_end};#{hash}\n")
       end
     end
+    return File.size(file_path)
   end
 
   def self.process_file(file_path, target_path, stored_hash_table, step_size)
@@ -84,10 +94,15 @@ class Blockfile
     puts "\nReading..."
     @hash_table = Hash.new
 
-    Dir.mkdir(target_path) unless Dir.exist?(target_path)
+    if @initial_backup
+      @directory_name = File.join(target_path,DateTime.now.strftime('%Y%m%dT%H%M%S') + '_initial')
+    else
+      @directory_name = File.join(target_path,DateTime.now.strftime('%Y%m%dT%H%M%S'))
+    end
 
-    @directory_name = File.join(target_path,DateTime.now.strftime('%Y%m%dT%H%M%S'))
     Dir.mkdir(@directory_name)
+
+    written_bytes = 0;
     File.open(file_path, 'rb') do | container |
       @processed_bytes = 0
 
@@ -95,16 +110,18 @@ class Blockfile
         current_block = container.read(step_size)
         @processed_bytes += step_size
         if stored_hash_table.nil?
-          Blockfile.write_block(current_block, nil)
+          written_bytes += current_block.length if Blockfile.write_block(current_block, nil)
         else
-          Blockfile.write_block(current_block, stored_hash_table[@processed_bytes.to_s])
+          written_bytes += current_block.length if Blockfile.write_block(current_block, stored_hash_table[@processed_bytes.to_s])
         end
       end
     end
+    return written_bytes
   end
 
   public
   def self.backup(configuration)
+    Writer.info("Starting #{configuration['mode']} backup...")
     time_begin = Time.now
     @last_percentage = 0.0
     filename = configuration['container']
@@ -114,70 +131,94 @@ class Blockfile
       return
     end
 
-    if configuration['unmount']
+    if configuration['truecrypt']['enabled'] && configuration['truecrypt']['unmount']
       Writer.info('Trying to unmount truecrypt volume, if necessary...')
-      Writer.warning 'Volume was not mounted or an error occured!' unless system("truecrypt -t -d #{configuration['container']}").to_s
+      Writer.warning 'Volume was not mounted or an error occured!' unless system("#{configuration['truecrypt']['binary']} -d #{configuration['container']}").to_s
     end
 
     target_path = configuration['target-path']
+    Dir.mkdir(target_path) unless Dir.exist?(target_path)
 
     step_size_megabytes = configuration['block-size']
     step_size = 1048576 * step_size_megabytes
 
     stored_hash_table = Blockfile.load_hashtable(target_path, configuration['mode'], false)
 
-    Blockfile.process_file(filename, target_path, stored_hash_table, step_size)
+    written_bytes = Blockfile.process_file(filename, target_path, stored_hash_table, step_size)
     if @initial_backup
-      Blockfile.write_hashtable(configuration['target-path'], true)
+      written_bytes += Blockfile.write_hashtable(true)
     else
-      Blockfile.write_hashtable(configuration['target-path'], false)
+      written_bytes += Blockfile.write_hashtable(false)
     end
+
+    if configuration['packing']['enabled'] && configuration['packing']['format'] == 'tar'
+      Writer.info('Packing created folder into tar package...')
+      system("tar -cvf #{@directory_name}.tar #{File.join(@directory_name)+File::SEPARATOR}")
+    end
+
     Writer.success("Finished! Time passed: #{(Time.now - time_begin).round(2)} seconds")
+    Writer.success("#{(written_bytes/1024.0/1024.0).round(2)} MB of new backup data written.")
+  end
+
+  def self.find_file(file_name, directories, target_path)
+    directories.each do | dir |
+      full_path = File.join(target_path, dir,file_name)
+      if File.exist?(full_path)
+        return full_path
+      end
+    end
+    return nil
   end
 
   def self.restore_backup(configuration)
     time_begin = Time.now
     target_path = configuration['target-path']
-    stored_hash_table = Blockfile.load_hashtable(target_path,configuration['mode'], true)
+    if Dir.exist?(target_path)
+      stored_hash_table = Blockfile.load_hashtable(target_path,configuration['mode'], true)
 
-    unless stored_hash_table.nil?
-      directories = Dir.entries(target_path).select {|entry| File.directory? File.join(target_path,entry) and !(entry =='.' || entry == '..') }
-      puts 'Restore container file from backups...'
-      if directories.length==0
-        Writer.error "No backup directories found in path '#{target_path}'!"
-        return
-      end
-
-      count = stored_hash_table.length
-
-      if (File.exist?(configuration['container']))
-        restored_filename = configuration['container'] + '_restored.tc'
-        Writer.info "Container file '#{configuration['container']}' already exists. Restored file will be named '#{restored_filename}'"
+      if stored_hash_table.nil?
+        Writer.error 'Hashtable not found!'
       else
-        restored_filename = configuration['container']
-      end
+        Writer.output "Restoring container file from last backup (#{@restore_backup_date.strftime('%F %T')})..."
+        directories = Dir.entries(target_path).select {|entry| File.directory? File.join(target_path,entry) and !(entry =='.' || entry == '..') }
+        if directories.length==0
+          Writer.error "No backup directories found in path '#{target_path}'!"
+          return
+        end
 
-      File.open(restored_filename, 'w') do | container |
-        i = 0
+        count = stored_hash_table.length
+
+        if File.exist?(configuration['container'])
+          restored_filename = configuration['container'] + '_restored.tc'
+          Writer.info "Container file '#{configuration['container']}' already exists. Restored file will be named '#{restored_filename}'"
+        else
+          restored_filename = configuration['container']
+        end
+
+        Writer.output("Checking existence of all #{stored_hash_table.length} files...")
+        block_files = Array.new
         stored_hash_table.each do | block_end, hash |
-          found = false
-          directories.each do | dir |
-            if File.exist?(File.join(target_path, dir,hash))
-              i += 1
-              container.write(File.read(File.join(target_path,dir,hash)))
-              puts "#{i} of #{count} files processed..."
-              found = true
-              break
-            end
-          end
-          unless found
+          found_file = find_file(hash, directories, target_path)
+          if found_file.nil?
             Writer.error("File '#{hash}' is missing. Backup could not be restored!")
             return
+          else
+            block_files.push found_file
+          end
+        end
+
+        Writer.output 'All needed files found...'
+
+        File.open(restored_filename, 'w') do | container |
+          block_files.each_with_index do | file_name, index |
+            container.write(File.read(file_name))
+            puts "#{index+1} of #{count} files processed..."
           end
         end
       end
     else
-      Writer.error 'Hashtable not found!'
+      Writer.error ("Folder #{target_path} does not exist!")
+      return
     end
     Writer.success "Finished! Time passed: #{(Time.now - time_begin).round(2)} seconds"
   end
