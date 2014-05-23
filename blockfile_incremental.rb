@@ -170,7 +170,7 @@ class Blockfile
     return nil
   end
 
-  def self.restore_backup(configuration)
+  def self.restore_backup(configuration, restore_path)
     time_begin = Time.now
     target_path = configuration['target-path']
     if Dir.exist?(target_path)
@@ -188,12 +188,17 @@ class Blockfile
 
         count = stored_hash_table.length
 
-        if File.exist?(configuration['container'])
-          restored_filename = configuration['container'] + '_restored.tc'
-          Writer.info "Container file '#{configuration['container']}' already exists. Restored file will be named '#{restored_filename}'"
-        else
-          restored_filename = configuration['container']
+        if restore_path.nil?
+          restore_path = configuration['container']
         end
+
+        if File.exist?(restore_path)
+          restored_filename = restore_path + '_restored.tc'
+          Writer.info "Container file '#{restore_path}' already exists."
+        else
+          restored_filename = restore_path
+        end
+        Writer.info "Restored file will be named '#{restored_filename}'"
 
         Writer.output("Checking existence of all #{stored_hash_table.length} files...")
         block_files = Array.new
@@ -262,25 +267,45 @@ class Writer
 end
 
 
-Writer.bold "BlockFile-Incremental v 0.1\n\n"
-if ARGV.length == 2 && (ARGV.first == 'backup' || ARGV.first == 'restore')
+Writer.bold "BlockFile-Incremental v 0.2\n\n"
+if ARGV.length >= 1
   filename = ARGV[1]
   action = ARGV[0]
 
-  if File.exist?(filename)
-    configuration = YAML.load(File.read(filename))
-
-    if action == 'backup'
-      if configuration['mode'] == 'incremental' || configuration['mode'] == 'differential'
-        Blockfile.backup(configuration)
-      else
-        Writer.error("Unknown backup mode '#{configuration['mode']}'. Please select 'incremental' or 'differential'")
-      end
+  configuration = nil
+  if ARGV.length >= 2
+    if File.exist?(filename)
+      configuration = YAML.load(File.read(filename))
     else
-      Blockfile.restore_backup(configuration)
+      Writer.error("File #{filename} does not exist!")
     end
-  else
-    Writer.error("File #{filename} does not exist!")
+  end
+
+  case action
+    when 'backup'
+      if configuration.nil?
+        Writer.error('Invalid filename or second argument (filename to config file) missing!')
+      else
+        if configuration['mode'] == 'incremental' || configuration['mode'] == 'differential'
+          Blockfile.backup(configuration)
+        else
+          Writer.error("Unknown backup mode '#{configuration['mode']}'. Please select 'incremental' or 'differential'")
+        end
+      end
+    when 'restore'
+      if configuration.nil?
+        Writer.error('Invalid filename or second argument (filename to config file) missing!')
+      else
+        restore_path = ARGV[2]
+        Blockfile.restore_backup(configuration, restore_path)
+      end
+    when 'example'
+      Writer.info 'Usage Examples:'
+      Writer.info 'blockfile_incremental.rb backup config.yml'
+      Writer.info 'blockfile_incremental.rb restore config.yml'
+      Writer.info 'blockfile_incremental.rb restore config.yml /tmp/restorefile.dat'
+    else
+      Writer.error("Unknown argument '#{action}'. Allowed arguments: backup, restore, example")
   end
 else
   Writer.error("Please pass command ('backup' or 'restore') and config file as command line arguments!")
