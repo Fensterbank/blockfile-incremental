@@ -106,7 +106,7 @@ class Blockfile
     File.open(file_path, 'rb') do | container |
       @processed_bytes = 0
 
-      while not container.eof? do
+      until container.eof? do
         current_block = container.read(step_size)
         @processed_bytes += step_size
         if stored_hash_table.nil?
@@ -120,8 +120,15 @@ class Blockfile
   end
 
   public
+  # Backup the Container with given configuration
   def self.backup(configuration)
     Writer.info("Starting #{configuration['mode']} backup...")
+
+    if configuration['target-path'].include? ' '
+      Writer.warning('Spaces are not allowed in target path. Spaces will be replaced by underscore!')
+      configuration['target-path'] = configuration['target-path'].tr(' ', '_')
+    end
+
     time_begin = Time.now
     @last_percentage = 0.0
     filename = configuration['container']
@@ -135,7 +142,7 @@ class Blockfile
       Writer.info('Trying to unmount truecrypt volume, if necessary...')
       Writer.warning 'Volume was not mounted or an error occured!' unless system("#{configuration['truecrypt']['binary']} -d #{configuration['container']}").to_s
     end
-
+                                                                                                              012
     target_path = configuration['target-path']
     Dir.mkdir(target_path) unless Dir.exist?(target_path)
 
@@ -151,6 +158,7 @@ class Blockfile
       written_bytes += Blockfile.write_hashtable(false)
     end
 
+    # Pack the container to archive file
     if configuration['packing']['enabled'] && configuration['packing']['format'] == 'tar'
       Writer.info('Packing created folder into tar package...')
       system("tar -cvf #{@directory_name}.tar #{File.join(@directory_name)+File::SEPARATOR}")
@@ -172,6 +180,12 @@ class Blockfile
 
   def self.restore_backup(configuration, restore_path)
     time_begin = Time.now
+
+    if configuration['target-path'].include? ' '
+      Writer.warning('Spaces are not allowed in target path. Spaces will be replaced by underscore!')
+      configuration['target-path'] = configuration['target-path'].tr(' ', '_')
+    end
+
     target_path = configuration['target-path']
     if Dir.exist?(target_path)
       stored_hash_table = Blockfile.load_hashtable(target_path,configuration['mode'], true)
@@ -267,7 +281,7 @@ class Writer
 end
 
 
-Writer.bold "BlockFile-Incremental v 0.2\n\n"
+Writer.bold "BlockFile-Incremental v 0.2.1\n\n"
 if ARGV.length >= 1
   filename = ARGV[1]
   action = ARGV[0]
