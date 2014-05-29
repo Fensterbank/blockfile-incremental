@@ -1,12 +1,12 @@
 BlockFile-Incremental
 =====
-Block-file incremental is a fast, small Ruby script created to backup and restore large block files, especially TrueCrypt containers.
+Block-file incremental is a fast, small Ruby script created to backup and restore large block files, especially TrueCrypt containers.  
 Because I did not found any simple solutions to make a comprehensible incremental backups of huge single files, I did it myself.
 
-TrueCrypt container files are nice block files, which means if a single file in the container is changed, of course only a small part of the huge file is changed.
+TrueCrypt container files are nice block files, which means if a single file in the container is changed, of course only a small part of the huge file is changed.  
 By reading a file block by block and store the blocks as single files, only few changed blocks must be stored in additional backups.
 
-For my backup strategy, I frequently make incremental backups of different huge TrueCrypt containers using this script and upload the archives to Amazon Glacier using the [glacieruploader][1] by [MoriTanosuke][2].
+For my backup strategy, I frequently make incremental backups of different huge TrueCrypt containers using this script and upload the archives to Amazon Glacier using the [glacieruploader][1] by [MoriTanosuke][2].  
 If my house explodes, I can download the initial backup archive and the latest backup archive to restore my container.
 
 What it will do
@@ -40,7 +40,7 @@ Restore
 
 Target Path Content Example
 ----------------
-Started backup 2013-04-25 with a container file of 48 GB, this is the content of the folder defined in target-path. Packing was disabled.
+Started backup 2013-04-25 with a container file of 48 GB, this is the content of the folder defined in target-path. Packing was disabled.  
 _The used command was always the same! The first folder was an initial backup and initial backups are only created if needed._
 
 Backup Date | Directory  | Files | Size
@@ -70,14 +70,14 @@ container: 'huge-file.tc'    | file path to the file to backup
 ```
 
 ### Block Size ###
-With a bigger block size, less blocked files will be created and a smaller hash table will be built.
-But even if a small bit in a block is changed, a file sized in the defined size will be created in the backup.
-_The bigger the block size, the faster is your backup and the bigger are your incremental or differential backups!_
+With a bigger block size, less blocked files will be created and a smaller hash table will be built.  
+But even if a small bit in a block is changed, a file sized in the defined size will be created in the backup.  
+_The bigger the block size, the faster is your backup and the bigger are your incremental or differential backups!_  
 __Notice:__ Changing the block-size between initial backup and later backups is not supported or tested.
 
 ### Packing ###
-Initial backup of a ~ 52 GB file resulted in 9832 single files in the target path's backup folder.
-Packing this to a tar archive is useful if you want to transport your backup.
+Initial backup of a ~ 52 GB file resulted in 9832 single files in the target path's backup folder.  
+Packing this to a tar archive is useful if you want to transport your backup.  
 __Notice:__ Don't be confused from the configuration possibility. Tar is the only format supported. :-)
 
 Requirements
@@ -86,9 +86,9 @@ All I know, Ruby 2.0.0 is required.
 
 Warnings
 ----------------
-* The hash table file (hashtable.csv) is the place, where all block hashes and it's exact byte position in the file is stored!
+* The hash table file (hashtable.csv) is the place, where all block hashes and it's exact byte position in the file is stored!  
   Killing your hash table kills your backup.
-* It's great for me and it works with huge TrueCrypt containers. I could backup and restore containers (> 50 GB) without problems after many (differential) backups.
+* It's great for me and it works with huge TrueCrypt containers. I could backup and restore containers (> 50 GB) without problems after many (differential) backups.  
   But also no one did a security audit or long term tests. Only _one_ wrong written bit or one missing block file would destroy the whole backup, so I cannot recommend a corporate use and guarantee for a long term solution without the possibility of bugs or data loss. 
 
 Usage Examples
@@ -108,7 +108,7 @@ Make a restore based on the given config file and save restored file to the give
 
 Questions
 -----
-If you find a bug, if you have other issues or wishes or if you have questions or problems feel free to contact me.
+If you find a bug, if you have other issues or wishes or if you have questions or problems feel free to contact me.  
 Also feel free to fork this project and make it even better.
 
 License
